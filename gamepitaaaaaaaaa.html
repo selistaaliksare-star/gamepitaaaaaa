@@ -1,0 +1,262 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Tangkap Bintang - Mini Game</title>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+            user-select: none;
+        }
+        body {
+            background-color: #0f172a;
+            color: #ffffff;
+            font-family: 'Segoe UI', Tahoma, Geneva, Verdana, sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            justify-content: center;
+            height: 100vh;
+            overflow: hidden;
+        }
+        #ui-bar {
+            width: 100%;
+            max-width: 400px;
+            display: flex;
+            justify-content: space-between;
+            padding: 15px 20px;
+            background: #1e293b;
+            border-radius: 12px 12px 0 0;
+            font-size: 18px;
+            font-weight: bold;
+        }
+        canvas {
+            background: linear-gradient(to bottom, #020617, #1e1b4b);
+            border: 2px solid #334155;
+            border-radius: 0 0 12px 12px;
+            display: block;
+            touch-action: none;
+        }
+        #overlay {
+            position: absolute;
+            background: rgba(15, 23, 42, 0.85);
+            width: 360px;
+            padding: 30px;
+            border-radius: 16px;
+            text-align: center;
+            border: 1px solid #475569;
+        }
+        h1 {
+            font-size: 26px;
+            margin-bottom: 10px;
+            color: #facc15;
+        }
+        p {
+            font-size: 14px;
+            color: #cbd5e1;
+            margin-bottom: 20px;
+            line-height: 1.5;
+        }
+        button {
+            background-color: #3b82f6;
+            color: white;
+            border: none;
+            padding: 12px 28px;
+            font-size: 16px;
+            font-weight: bold;
+            border-radius: 8px;
+            cursor: pointer;
+            transition: background 0.2s;
+        }
+        button:hover {
+            background-color: #2563eb;
+        }
+    </style>
+</head>
+<body>
+
+    <div id="ui-bar">
+        <span>Skor: <span id="score">0</span></span>
+        <span>Nyawa: <span id="lives">❤️❤️❤️</span></span>
+    </div>
+    
+    <canvas id="gameCanvas" width="400" height="550"></canvas>
+
+    <div id="overlay">
+        <h1 id="title">Tangkap Bintang</h1>
+        <p id="desc">Geser keranjang menggunakan tombol <b>Panah Kiri/Kanan</b> atau <b>Sentuh & Geser</b> di layar.<br><br>Tangkap ⭐ (+10) dan hindari 💣!</p>
+        <button id="startBtn">Mulai Main</button>
+    </div>
+
+    <script>
+        const canvas = document.getElementById('gameCanvas');
+        const ctx = canvas.getContext('2d');
+        const scoreEl = document.getElementById('score');
+        const livesEl = document.getElementById('lives');
+        const overlay = document.getElementById('overlay');
+        const startBtn = document.getElementById('startBtn');
+        const titleEl = document.getElementById('title');
+        const descEl = document.getElementById('desc');
+
+        // Menyesuaikan ukuran layar HP jika lebih kecil dari 400px
+        if (window.innerWidth < 420) {
+            canvas.width = window.innerWidth - 20;
+            document.getElementById('ui-bar').style.width = canvas.width + 'px';
+            overlay.style.width = (canvas.width - 40) + 'px';
+        }
+
+        let score = 0;
+        let lives = 3;
+        let isPlaying = false;
+        let items = [];
+        let spawnTimer = 0;
+        let animationId;
+
+        const player = {
+            width: 70,
+            height: 16,
+            x: canvas.width / 2 - 35,
+            y: canvas.height - 35,
+            speed: 7,
+            dx: 0
+        };
+
+        // Kontrol Keyboard
+        document.addEventListener('keydown', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a') player.dx = -player.speed;
+            if (e.key === 'ArrowRight' || e.key === 'd') player.dx = player.speed;
+        });
+        document.addEventListener('keyup', (e) => {
+            if (e.key === 'ArrowLeft' || e.key === 'a' || e.key === 'ArrowRight' || e.key === 'd') {
+                player.dx = 0;
+            }
+        });
+
+        // Kontrol Sentuh & Mouse
+        function movePlayerTo(clientX) {
+            const rect = canvas.getBoundingClientRect();
+            const rootX = clientX - rect.left;
+            player.x = rootX - player.width / 2;
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+        }
+
+        canvas.addEventListener('touchmove', (e) => {
+            if (!isPlaying) return;
+            movePlayerTo(e.touches[0].clientX);
+        }, { passive: true });
+
+        canvas.addEventListener('mousemove', (e) => {
+            if (!isPlaying || e.buttons !== 1) return;
+            movePlayerTo(e.clientX);
+        });
+
+        function spawnItem() {
+            const isBomb = Math.random() < 0.25; // 25% kemungkinan bom
+            items.push({
+                x: Math.random() * (canvas.width - 30) + 15,
+                y: -20,
+                radius: 14,
+                speed: 3 + Math.random() * 2 + (score / 150), // Makin tinggi skor makin cepat
+                type: isBomb ? 'bomb' : 'star'
+            });
+        }
+
+        function updateUI() {
+            scoreEl.textContent = score;
+            livesEl.textContent = '❤️'.repeat(Math.max(0, lives));
+        }
+
+        function drawPlayer() {
+            ctx.fillStyle = '#38bdf8';
+            ctx.beginPath();
+            ctx.roundRect(player.x, player.y, player.width, player.height, 8);
+            ctx.fill();
+        }
+
+        function drawItems() {
+            ctx.font = '24px Arial';
+            ctx.textAlign = 'center';
+            ctx.textBaseline = 'middle';
+            items.forEach(item => {
+                ctx.fillText(item.type === 'star' ? '⭐' : '💣', item.x, item.y);
+            });
+        }
+
+        function gameOver() {
+            isPlaying = false;
+            cancelAnimationFrame(animationId);
+            titleEl.textContent = 'Game Over!';
+            descEl.innerHTML = `Skor Akhir Kamu: <b>${score}</b>`;
+            startBtn.textContent = 'Main Lagi';
+            overlay.style.display = 'block';
+        }
+
+        function update() {
+            if (!isPlaying) return;
+
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+
+            // Gerak pemain
+            player.x += player.dx;
+            if (player.x < 0) player.x = 0;
+            if (player.x + player.width > canvas.width) player.x = canvas.width - player.width;
+
+            // Munculkan item baru
+            spawnTimer++;
+            if (spawnTimer > 45) {
+                spawnItem();
+                spawnTimer = 0;
+            }
+
+            // Update posisi & cek tabrakan item
+            for (let i = items.length - 1; i >= 0; i--) {
+                let item = items[i];
+                item.y += item.speed;
+
+                // Cek tangkapan keranjang
+                if (
+                    item.y + item.radius > player.y &&
+                    item.y - item.radius < player.y + player.height &&
+                    item.x > player.x - 10 &&
+                    item.x < player.x + player.width + 10
+                ) {
+                    if (item.type === 'star') {
+                        score += 10;
+                    } else {
+                        lives--;
+                    }
+                    updateUI();
+                    items.splice(i, 1);
+                    if (lives <= 0) return gameOver();
+                    continue;
+                }
+
+                // Hapus jika lewat batas bawah
+                if (item.y > canvas.height + 20) {
+                    items.splice(i, 1);
+                }
+            }
+
+            drawPlayer();
+            drawItems();
+
+            animationId = requestAnimationFrame(update);
+        }
+
+        startBtn.addEventListener('click', () => {
+            score = 0;
+            lives = 3;
+            items = [];
+            player.x = canvas.width / 2 - player.width / 2;
+            updateUI();
+            overlay.style.display = 'none';
+            isPlaying = true;
+            update();
+        });
+    </script>
+</body>
+</html>
